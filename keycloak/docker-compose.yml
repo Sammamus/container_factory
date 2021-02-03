@@ -1,0 +1,85 @@
+version: "3.9"
+
+x-redash-service: &redash-service
+  image: redash/redash:latest
+  depends_on:
+    - postgres
+    - redis
+  restart: always
+
+services:
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:12.0.2
+    ports:
+      - "8080:8080"
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=admin
+      - DB_ADDR=kc_postgres
+      - DB_VENDOR=postgres
+      - DB_USER=keycloak
+      - DB_PASSWORD=keycloak
+      - DB_PORT=5432
+
+  kc_postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_PASSWORD=keycloak
+      - POSTGRES_USER=keycloak
+
+  redash:
+    <<: *redash-service
+    command: server
+    ports:
+      - "5000:5000"
+    environment:
+      - REDASH_WEB_WORKERS=4
+      - REDASH_REDIS_URL=redis://redis:6379/0
+      - REDASH_DATABASE_URL=postgresql://redash:redash@postgres:5432/redash
+
+  scheduler:
+    <<: *redash-service
+    command: scheduler
+    environment:
+      - QUEUES=celery
+      - WORKERS_COUNT=1
+      - REDASH_REDIS_URL=redis://redis:6379/0
+      - REDASH_DATABASE_URL=postgresql://redash:redash@postgres/redash
+
+  scheduler_worker:
+    <<: *redash-service
+    command: worker
+    environment:
+      - QUEUES=scheduled_queries,schemas
+      - WORKERS_COUNT=1
+      - REDASH_REDIS_URL=redis://redis:6379/0
+      - REDASH_DATABASE_URL=postgresql://redash:redash@postgres/redash
+
+  adhoc_worker:
+    <<: *redash-service
+    command: worker
+    environment:
+      - QUEUES=queries
+      - WORKERS_COUNT=2
+      - REDASH_REDIS_URL=redis://redis:6379/0
+      - REDASH_DATABASE_URL=postgresql://redash:redash@postgres/redash
+
+  redis:
+    image: redis:latest
+    restart: always
+
+  postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=redash
+      - POSTGRES_PASSWORD=redash
+    restart: always
+
+  nginx:
+    image: redash/nginx:latest
+    ports:
+      - "80:80"
+    depends_on:
+      - redash
+    restart: always
